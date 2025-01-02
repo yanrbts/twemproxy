@@ -131,34 +131,41 @@ log_loggable(int level)
 void
 _log(const char *file, int line, int panic, const char *fmt, ...)
 {
-    struct logger *l = &logger;
-    int len, size, errno_save;
-    char buf[LOG_MAX_LEN];
-    va_list args;
-    ssize_t n;
-    struct timeval tv;
+    struct logger  *l = &logger;
+    int             len = 0, size = LOG_MAX_LEN, errno_save = errno, n;
+    size_t          off;  
+    char            buf[LOG_MAX_LEN];
+    char            time_buf[64];
+    va_list         args;
+    struct timeval  tv;
+    time_t          now;
+    struct tm       now_tm, *lt_ret;
+    const char      *c = ".-*#@!IDVWGP";    
 
-    if (l->fd < 0) {
+    if (l->fd < 0)
         return;
-    }
 
-    errno_save = errno;
-    len = 0;            /* length of output buffer */
-    size = LOG_MAX_LEN; /* size of output buffer */
+    /* get current time */
+	now = time(NULL);
+	lt_ret = localtime_r(&now, &now_tm);
+	gettimeofday(&tv,NULL);
 
-    gettimeofday(&tv, NULL);
-    buf[len++] = '[';
-    len += nc_strftime(buf + len, size - len, "%Y-%m-%d %H:%M:%S.", localtime(&tv.tv_sec));
-    len += nc_scnprintf(buf + len, size - len, "%03ld", tv.tv_usec/1000);
-    len += nc_scnprintf(buf + len, size - len, "] %s:%d ", file, line);
+    off = nc_strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S.", lt_ret);
+    nc_scnprintf(time_buf+off, sizeof(time_buf)-off, "%03ld", (long)tv.tv_usec/1000);
+
+    /* Format log message */
+#ifdef GF_DEBUG_LOG
+    len += nc_scnprintf(buf+len, size-len, "%s:%d ", file, line);
+#endif
 
     va_start(args, fmt);
-    len += nc_vscnprintf(buf + len, size - len, fmt, args);
+    len += nc_vscnprintf(buf+len, size-len, fmt, args);
     va_end(args);
+    buf[len++] = '\0';
 
-    buf[len++] = '\n';
-
-    n = nc_write(l->fd, buf, len);
+    /* Write to log */
+    n = dprintf(l->fd, "\033[90m[%d]:%s %c \033[0m%s\n",
+            (int)getpid(), time_buf, c[l->level], buf);
     if (n < 0) {
         l->nerror++;
     }
@@ -173,11 +180,11 @@ _log(const char *file, int line, int panic, const char *fmt, ...)
 void
 _log_stderr(const char *fmt, ...)
 {
-    struct logger *l = &logger;
-    int len, size, errno_save;
-    char buf[4 * LOG_MAX_LEN];
-    va_list args;
-    ssize_t n;
+    struct logger  *l = &logger;
+    int             len, size, errno_save;
+    char            buf[4 * LOG_MAX_LEN];
+    va_list         args;
+    ssize_t         n;
 
     errno_save = errno;
     len = 0;                /* length of output buffer */
@@ -205,10 +212,10 @@ void
 _log_hexdump(const char *file, int line, const char *data, int datalen,
              const char *fmt, ...)
 {
-    struct logger *l = &logger;
-    char buf[8 * LOG_MAX_LEN];
-    int i, off, len, size, errno_save;
-    ssize_t n;
+    struct logger  *l = &logger;
+    char            buf[8 * LOG_MAX_LEN];
+    int             i, off, len, size, errno_save;
+    ssize_t         n;
 
     if (l->fd < 0) {
         return;
@@ -272,29 +279,37 @@ _log_hexdump(const char *file, int line, const char *data, int datalen,
 void
 _log_safe(const char *fmt, ...)
 {
-    struct logger *l = &logger;
-    int len, size, errno_save;
-    char buf[LOG_MAX_LEN];
-    va_list args;
-    ssize_t n;
+    struct logger  *l = &logger;
+    int             len = 0, size = LOG_MAX_LEN, errno_save = errno;
+    char            buf[LOG_MAX_LEN];
+    va_list         args;
+    ssize_t         n;
+    struct timeval  tv;
+    time_t          now;
+    struct tm       now_tm, *lt_ret;
+    char            time_buf[64];
+    size_t          off;
+
 
     if (l->fd < 0) {
         return;
     }
 
-    errno_save = errno;
-    len = 0;            /* length of output buffer */
-    size = LOG_MAX_LEN; /* size of output buffer */
+    /* get current time */
+	now = time(NULL);
+	lt_ret = localtime_r(&now, &now_tm);
+	gettimeofday(&tv,NULL);
 
-    len += nc_safe_snprintf(buf + len, size - len, "[.......................] ");
+    off = nc_strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S.", lt_ret);
+    nc_scnprintf(time_buf+off, sizeof(time_buf)-off, "%03ld", (long)tv.tv_usec/1000);
 
     va_start(args, fmt);
-    len += nc_safe_vsnprintf(buf + len, size - len, fmt, args);
+    len += nc_safe_vsnprintf(buf, size, fmt, args);
     va_end(args);
+    buf[len++] = '\0';
 
-    buf[len++] = '\n';
-
-    n = nc_write(l->fd, buf, len);
+    n = dprintf(l->fd, "\033[90m[%d]:%s %c \033[0m%s\n",
+            (int)getpid(), time_buf, 'Q', buf);
     if (n < 0) {
         l->nerror++;
     }
@@ -305,15 +320,11 @@ _log_safe(const char *fmt, ...)
 void
 _log_stderr_safe(const char *fmt, ...)
 {
-    struct logger *l = &logger;
-    int len, size, errno_save;
-    char buf[LOG_MAX_LEN];
-    va_list args;
-    ssize_t n;
-
-    errno_save = errno;
-    len = 0;            /* length of output buffer */
-    size = LOG_MAX_LEN; /* size of output buffer */
+    struct logger  *l = &logger;
+    int             len = 0, size = LOG_MAX_LEN, errno_save = errno;
+    char            buf[LOG_MAX_LEN];
+    va_list         args;
+    ssize_t         n;
 
     len += nc_safe_snprintf(buf + len, size - len, "[.......................] ");
 

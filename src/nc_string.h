@@ -104,7 +104,7 @@ int string_compare(const struct string *s1, const struct string *s2);
     _vscnprintf((char *)(_s), (size_t)(_n), _f, _a)
 
 #define nc_strftime(_s, _n, fmt, tm)        \
-    (int)strftime((char *)(_s), (size_t)(_n), fmt, tm)
+    strftime((char *)(_s), (size_t)(_n), fmt, tm)
 
 /*
  * A (very) limited version of snprintf
